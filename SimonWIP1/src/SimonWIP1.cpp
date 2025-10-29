@@ -54,6 +54,7 @@ const int GRN_INDEX = 3;
 
 const int COLORS[] = {COLOR_RED, COLOR_BLU, COLOR_YLW, COLOR_GRN};
 const int TONES[]  = {TONE_RED, TONE_BLU, TONE_YLW, TONE_GRN};
+const unsigned char *FACES[] = {redFace, bluFace, ylwFace, grnFace};
 
 const int BULB = 4; // hue
 const int HUE_RAINBOW_SIZE = sizeof(HueRainbow) / sizeof(HueRainbow[0]);
@@ -68,6 +69,8 @@ const int MAX_SATURATION = 255;
 
 const int OLED_RESET = -1;
 const int INTRO_FLASH_COUNT = 8;
+const int SCREEN_WIDTH = 128;
+const int SCREEN_HEIGHT = 64;
 
 
 // Variables
@@ -118,15 +121,7 @@ void updateBulb();
 void cycleColors();
 void cycleColorsReverse();
 void displaySplash();
-
-void displayLoseFacePos();
-void displayLoseFaceNeg();
-void displayRedFace();
-void displayBluFace();
-void displayYlwFace();
-void displayGrnFace();
-void displayNtlFace();
-
+void displayFace(const unsigned char *face);
 
 // setup
 void setup() {
@@ -288,9 +283,11 @@ void loop() {
     }  
   }
 
-  playSolution();   // first, with each loop, play the solution script
+  // first, with each loop, play the solution script
+  playSolution();   
 
-  Serial.printf("Guess: ");   // for each value in solution, get user guess and check it
+  // for each value in solution, get user guess and check it
+  Serial.printf("Guess: ");   
 
   for (int i = 0; i < solution.size(); i++) {
     int guess = getGuess();
@@ -302,6 +299,7 @@ void loop() {
     }
   }
   Serial.printf("\n");
+  displayFace(ntlFace);
   timer.startTimer(500);
   while (!timer.isTimerReady()) {
     // do nothing
@@ -327,6 +325,7 @@ void playSolution() {
     lightPixel(solution[i], COLORS[solution[i]], speed);
     Serial.printf("%d ", solution[i]);
   }
+  displayFace(ntlFace);
   Serial.printf("\n");
 }
 
@@ -334,12 +333,14 @@ void lightPixel(int pixelNum, int pixelCol, int time) {
   pixel.setPixelColor(pixelNum, pixelCol);
   pixel.show();
   tone(BUZZERPIN, TONES[pixelNum]);
+  displayFace(FACES[pixelNum]);
   timer.startTimer(time);
   while (!timer.isTimerReady()) { 
     // do nothing 
   }
   pixel.clear();
   pixel.show();
+  // displayFace(ntlFace);
   noTone(BUZZERPIN);
   timer.startTimer(time);
   while (!timer.isTimerReady()) {
@@ -355,32 +356,32 @@ int getGuess() {
       pixel.show();
       guess = 0;
       tone(BUZZERPIN, TONES[RED_INDEX]);
-      displayRedFace();
+      displayFace(redFace);
     }
     while (bluButton.isPressed()) {
       pixel.setPixelColor(BLU_INDEX, COLORS[BLU_INDEX]);
       pixel.show();
       guess = 1;
       tone(BUZZERPIN, TONES[BLU_INDEX]);
-      displayBluFace();
+      displayFace(bluFace);
     }
     while (ylwButton.isPressed()) {
       pixel.setPixelColor(YLW_INDEX, COLORS[YLW_INDEX]);
       pixel.show();
       guess = 2;
       tone(BUZZERPIN, TONES[YLW_INDEX]);
-      displayYlwFace();
+      displayFace(ylwFace);
     }
     while (grnButton.isPressed()) {
       pixel.setPixelColor(GRN_INDEX, COLORS[GRN_INDEX]);
       pixel.show();
       guess = 3;
       tone(BUZZERPIN, TONES[GRN_INDEX]);
-      displayGrnFace();
+      displayFace(grnFace);
     }
   }
   noTone(BUZZERPIN);
-  displayNtlFace();
+  // displayFace(ntlFace);
   Serial.printf("%d ", guess);
   pixel.clear();
   pixel.show();
@@ -408,20 +409,19 @@ void resetGame() {   // flash lights five times and reset
       }
       pixel.show();
       tone(BUZZERPIN, TONES[lastGuess]);
-      displayLoseFacePos();
+      displayFace(loseFacePos);
       timer.startTimer(100);
       while (!timer.isTimerReady()) {
         // do nothing
       }
       noTone(BUZZERPIN);
-      displayLoseFaceNeg();
+      displayFace(loseFaceNeg);
       pixel.clear();
     }
     wemoOne.turnOff();
     wemoTwo.turnOff();
   }
   firstPlay = false;
-  
 
   // reset game state
   gameOver = false;
@@ -438,7 +438,7 @@ void resetGame() {   // flash lights five times and reset
   level = 1;
   levels[level] = true;
 
-  displayNtlFace();
+  displayFace(ntlFace);
 }
 
 int encoderPositionToBrightness(int position) {
@@ -470,44 +470,8 @@ void displaySplash() {
   }
 }
 
-void displayLoseFacePos() {
+void displayFace(const unsigned char *face) {
   display.clearDisplay();
-  display.drawBitmap(0, 0, loseFacePos, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayLoseFaceNeg() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, loseFaceNeg, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayRedFace() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, redFace, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayBluFace() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, bluFace, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayYlwFace() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, ylwFace, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayGrnFace() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, grnFace, OLED_WIDTH, OLED_HEIGHT, WHITE);
-  display.display();
-}
-
-void displayNtlFace() {
-  display.clearDisplay();
-  display.drawBitmap(0, 0, ntlFace, OLED_WIDTH, OLED_HEIGHT, WHITE);
+  display.drawBitmap(0, 0, face, OLED_WIDTH, OLED_HEIGHT, WHITE);
   display.display();
 }
