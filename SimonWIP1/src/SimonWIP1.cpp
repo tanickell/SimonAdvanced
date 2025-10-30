@@ -16,6 +16,7 @@
 #include "graphics.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_SSD1306.h"
+#include "Adafruit_BME280.h"
 
 
 // Let Device OS manage the connection to the Particle Cloud
@@ -78,6 +79,8 @@ const int INTRO_FLASH_COUNT = 8;
 const int SCREEN_WIDTH = 128;
 const int SCREEN_HEIGHT = 64;
 
+const int BME280_HEX_ADDRESS = 0x76;
+
 
 // Variables
 int pixelColor;
@@ -96,11 +99,15 @@ int level;
 int myWemo;
 bool levels[HUE_RAINBOW_SIZE + 1]; // initialize all values to false
 bool firstPlay;
+int status;
+float tempC;
+float tempF;
 
 
 // Objects
 std::vector<int> solution;
 IoTTimer timer;
+IoTTimer tempTimer;
 
 Button redButton(REDPIN);
 Button bluButton(BLUPIN);
@@ -111,6 +118,8 @@ Button hueLightOnOffButton(HUE_LIGHT_ON_OFF_BUTTON_PIN);
 
 Adafruit_NeoPixel pixel(PIXELCOUNT, SPI1, WS2812B);
 Adafruit_SSD1306 display(OLED_RESET);
+Adafruit_BME280 bme; // Define BME280 object (I2C device)
+
 Encoder myEnc(ENCODER_PIN_A, ENCODER_PIN_B);
 WemoObj wemoOne(WEMO_ONE);
 WemoObj wemoTwo(WEMO_TWO);
@@ -128,6 +137,7 @@ void cycleColors();
 void cycleColorsReverse();
 void displaySplash();
 void displayFace(const unsigned char *face);
+float celsiusToFahrenheit(float celsius);
 
 
 // setup
@@ -136,10 +146,6 @@ void setup() {
   // set up pins
   pinMode(RANDPIN, INPUT);
   pinMode(BUZZERPIN, OUTPUT);
-  // pinMode(REDPIN, INPUT);
-  // pinMode(BLUPIN, INPUT);
-  // pinMode(YLWPIN, INPUT);
-  // pinMode(GRNPIN, INPUT);
 
   pinMode(REDPWRPIN, OUTPUT);
   pinMode(BLUPWRPIN, OUTPUT);
@@ -167,14 +173,23 @@ void setup() {
   // delay(3000);
   display.clearDisplay();
 
+  // Initialize BME280
+  status = bme.begin(BME280_HEX_ADDRESS);
+  if (!status) {
+    Serial.printf("BME280 at addess 0x%02X failed to start.", BME280_HEX_ADDRESS);
+  }
+  tempC = bme.readTemperature();
+
   // set up WiFi
   WiFi.on();
   WiFi.clearCredentials();
   WiFi.setCredentials("IoTNetwork");
   WiFi.connect();
+  // int count = 0;
   while (!WiFi.ready()) {
     Serial.printf(".");
     delay(250);
+    // count++;
   }
   Serial.printf("\n\n");
 
@@ -189,6 +204,10 @@ void setup() {
   saturation = MAX_SATURATION;
   myWemo = WEMO_ONE;
   firstPlay = true;
+
+  // initialize timers
+  timer.startTimer(0);
+  tempTimer.startTimer(0);
 
   // play splash screen
   displaySplash();
@@ -224,7 +243,7 @@ void loop() {
   //   cycleColors();
   // }
 
-  encoderPosition = (myEnc.read() / 4);
+  encoderPosition = myEnc.read() / 4;
 
   // bound input to 0-95
   if (encoderPosition < ENCODER_MIN_POSITION) {
@@ -364,7 +383,19 @@ void lightPixel(int pixelNum, int pixelCol, int time) {
 
 int getGuess() {
   int guess = -1;
+  tempTimer.startTimer(0);
   while (guess == -1) {
+
+    // place encoder, button, and any BME code here
+
+    // user experience spends most time in this part of the code
+    if (tempTimer.isTimerReady()) {
+      tempC = bme.readTemperature();
+      tempF = celsiusToFahrenheit(tempC);
+      Serial.printf("tempF: %0.2f\n", tempF);
+      tempTimer.startTimer(10000);
+    }
+
     while (redButton.isPressed()) {
       digitalWrite(BUTTONPWRPINS[0], HIGH);
       pixel.setPixelColor(RED_INDEX, COLORS[RED_INDEX]);
@@ -497,4 +528,8 @@ void displayFace(const unsigned char *face) {
   display.clearDisplay();
   display.drawBitmap(0, 0, face, OLED_WIDTH, OLED_HEIGHT, WHITE);
   display.display();
+}
+
+float celsiusToFahrenheit(float celsius) {
+  return (9.0 / 5.0) * celsius + 32;
 }
