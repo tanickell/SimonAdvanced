@@ -35,7 +35,8 @@ const int chocolate = 0xD2691E;
 const int salmon = 0xC67171;
 const int tomato = 0xFF6347;
 
-const int rainbow[] = {red, orange, yellow, green, blue, indigo,violet};
+// const int rainbow[] = {red, orange, yellow, green, blue, indigo,violet};
+const int rainbow[] = {red, yellow, green, cyan, blue, magenta, white};
 
 #endif // _COLORS_H_
 

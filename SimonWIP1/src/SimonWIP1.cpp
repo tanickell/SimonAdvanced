@@ -23,23 +23,36 @@
 SYSTEM_MODE(MANUAL);
 
 
-// Constants
-const int RANDPIN = D1; // random seed
-const int BUZZERPIN = D15; // pins
-const int REDPIN = D10; // SIMON buttons
-const int BLUPIN = D6;
+// Pins (1-19)
+const int SDAPIN = D0;
+const int SCLPIN = D1;
+const int NEOPIXELPIN = D2; // unused; declared in pixel object below using SPI1
+const int MODEPIN = D3;
+
+const int GRNPIN = D4; // SIMON buttons (grn, ylw, blu)
 const int YLWPIN = D5;
-const int GRNPIN = D4;
+const int BLUPIN = D6;
+
+const int D7PIN = D7; // unused to avoid LED problems
+
 const int ENCODER_PIN_A = D8; // encoder input pullup pins
 const int ENCODER_PIN_B = D9;
-const int HUE_LIGHT_ON_OFF_BUTTON_PIN = D3;
-// const int HUE_LIGHT_CYCLE_BUTTON_PIN  = D12;
+
+const int REDPIN = D10; // SIMON red button pin
 
 const int REDPWRPIN = D11;
 const int BLUPWRPIN = D12;
 const int YLWPWRPIN = D13;
 const int GRNPWRPIN = D14;
 
+const int BUZZERPIN = D15; // buzzer
+const int LIGHT_CYCLE_BUTTON_PIN  = D16; // encoder switch
+const int ENCODER_RPIN = D17; // encoder rgb+sw pins
+const int ENCODER_GPIN = D18;
+const int ENCODER_BPIN = D19;
+
+
+// Constants
 const int ENCODER_MIN_POSITION = 0; // encoder position
 const int ENCODER_MAX_POSITION = 95;
 
@@ -67,6 +80,7 @@ const int BULB = 4; // hue
 const int HUE_RAINBOW_SIZE = sizeof(HueRainbow) / sizeof(HueRainbow[0]);
 const int PIXELCOUNT = 4; // neopixel num
 const int BRIGHTNESS = 50; // initial/default brightness
+const int RAINBOW_LENGTH = sizeof(rainbow) / sizeof(rainbow[0]);
 
 const int WEMO_ONE = 2;
 const int WEMO_TWO = 4;
@@ -87,10 +101,13 @@ int pixelColor;
 int speed;
 bool gameOver;
 int lastGuess;
+int pixelLightColor;
 int hueLightColor;
 bool hueLightOnOff;
 bool wemoOneOnOff;
 bool wemoTwoOnOff;
+bool pixelLightOnOff;
+bool encoderLightOnOff;
 int brightness;
 int saturation;
 int encoderPosition;
@@ -103,6 +120,8 @@ int status;
 float tempC;
 float tempF;
 
+bool passiveMode;
+
 
 // Objects
 std::vector<int> solution;
@@ -113,8 +132,8 @@ Button redButton(REDPIN);
 Button bluButton(BLUPIN);
 Button ylwButton(YLWPIN);
 Button grnButton(GRNPIN);
-Button hueLightOnOffButton(HUE_LIGHT_ON_OFF_BUTTON_PIN);
-// Button hueLightCycleButton(HUE_LIGHT_CYCLE_BUTTON_PIN);
+Button modeButton(MODEPIN);
+Button lightCycleButton(LIGHT_CYCLE_BUTTON_PIN);
 
 Adafruit_NeoPixel pixel(PIXELCOUNT, SPI1, WS2812B);
 Adafruit_SSD1306 display(OLED_RESET);
@@ -138,19 +157,22 @@ void cycleColorsReverse();
 void displaySplash();
 void displayFace(const unsigned char *face);
 float celsiusToFahrenheit(float celsius);
-
+void enterPassiveMode();
+void setEncoderLight();
+int temperatureToColor(float temp);
 
 // setup
 void setup() {
 
   // set up pins
-  pinMode(RANDPIN, INPUT);
   pinMode(BUZZERPIN, OUTPUT);
-
   pinMode(REDPWRPIN, OUTPUT);
   pinMode(BLUPWRPIN, OUTPUT);
   pinMode(YLWPWRPIN, OUTPUT);
   pinMode(GRNPWRPIN, OUTPUT);
+  pinMode(ENCODER_RPIN, OUTPUT);
+  pinMode(ENCODER_GPIN, OUTPUT);
+  pinMode(ENCODER_BPIN, OUTPUT);
 
   // set up serial monitor
   Serial.begin(9600);
@@ -164,8 +186,13 @@ void setup() {
   pixel.setBrightness(BRIGHTNESS);
   pixel.show();
 
-  // set up random
-  randomSeed(analogRead(RANDPIN));
+  // // set up random
+  // randomSeed(analogRead(RANDPIN));
+
+  // Initialize Encoder Light
+  digitalWrite(ENCODER_RPIN, HIGH);
+  digitalWrite(ENCODER_GPIN, HIGH);
+  digitalWrite(ENCODER_BPIN, HIGH);
 
   // initialize OLED & display splash
   display.begin(SSD1306_SWITCHCAPVCC, 0x3c);
@@ -194,9 +221,12 @@ void setup() {
   Serial.printf("\n\n");
 
   // initialize variables
-  hueLightOnOff = true;
+  hueLightOnOff = false;
+  pixelLightOnOff = false;
+  encoderLightOnOff = false;
   wemoOneOnOff = false;
   wemoTwoOnOff = false;
+  pixelLightColor = 0;
   myEnc.write(ENCODER_MAX_POSITION / 2 * 4);
   encoderPosition = myEnc.read() / 4;
   prevEncoderPosition = encoderPosition;
@@ -204,6 +234,8 @@ void setup() {
   saturation = MAX_SATURATION;
   myWemo = WEMO_ONE;
   firstPlay = true;
+
+  passiveMode = false;
 
   // initialize timers
   timer.startTimer(0);
@@ -220,54 +252,12 @@ void setup() {
 // loop
 void loop() {
 
-  if (hueLightOnOffButton.isPressed()) {
-    while (hueLightOnOffButton.isPressed()) {
-      // do nothing
-    }
-    timer.startTimer(50);
-    while (!timer.isTimerReady()) {
-      // do nothing
-    }
-    hueLightOnOff = !hueLightOnOff;
-    if (hueLightOnOff) {
-      Serial.printf("Turning on Hue Light #%i\n", BULB);
-      updateBulb();
-    }
-    else {
-      Serial.printf("Turning off Hue Light #%i\n", BULB);
-      updateBulb();
-    }
-  }
-  
-  // if (hueLightCycleButton.isClicked()) {
-  //   cycleColors();
-  // }
-
-  encoderPosition = myEnc.read() / 4;
-
-  // bound input to 0-95
-  if (encoderPosition < ENCODER_MIN_POSITION) {
-    encoderPosition = ENCODER_MIN_POSITION;
-    myEnc.write(encoderPosition * 4);
-  }
-  if (encoderPosition > ENCODER_MAX_POSITION) {
-    encoderPosition = ENCODER_MAX_POSITION;
-    myEnc.write(encoderPosition * 4);
-  }
-
-  // check to see if position has updated & print
-  if (encoderPosition != prevEncoderPosition) {
-    prevEncoderPosition = encoderPosition;
-    brightness = encoderPositionToBrightness(encoderPosition);
-    updateBulb();
-    Serial.printf("Encoder Position: #%i, Brightness: %i\n", encoderPosition, brightness);
-  }
-
+  // Start Game
   if (solution.size() > 2 && solution.size() <= 5) {   // set speed & control lights based on "level"
     speed = 666 / 2;
     level = 2;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
       wemoOne.turnOn();
     }
@@ -276,7 +266,7 @@ void loop() {
     speed = 500 / 2;
     level = 3;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
       wemoTwo.turnOn();
     }  
@@ -285,7 +275,7 @@ void loop() {
     speed = 500 / 2;
     level = 4;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
     }  
   }
@@ -293,7 +283,7 @@ void loop() {
     speed = 333 / 2;
     level = 5;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
     }  
   }
@@ -301,7 +291,7 @@ void loop() {
     speed = 250 / 2;
     level = 6;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
     }  
   }
@@ -309,7 +299,7 @@ void loop() {
     speed = 200 / 2;
     level = 7;
     if (!levels[level]) {
-      cycleColorsReverse();
+      cycleHueColorsReverse();
       levels[level] = true;
     }  
   }
@@ -322,6 +312,10 @@ void loop() {
 
   for (int i = 0; i < solution.size(); i++) {
     int guess = getGuess();
+    if (guess == -1) {
+      gameOver = true;
+      break;
+    }
     lastGuess = guess;
     bool isCorrect = checkGuess(guess, i);
     if (!isCorrect) {
@@ -384,19 +378,21 @@ void lightPixel(int pixelNum, int pixelCol, int time) {
 int getGuess() {
   int guess = -1;
   tempTimer.startTimer(0);
-  while (guess == -1) {
+  while (guess == -1) { // ue spends most time in this part of program
 
-    // place encoder, button, and any BME code here
-
-    // user experience spends most time in this part of the code
-    if (tempTimer.isTimerReady()) {
-      tempC = bme.readTemperature();
-      tempF = celsiusToFahrenheit(tempC);
-      Serial.printf("tempF: %0.2f\n", tempF);
-      tempTimer.startTimer(10000);
+    if (modeButton.isPressed()) { // first, allow for entry into passive mode here
+      passiveMode = true;
+    }
+    else {
+      passiveMode = false;
     }
 
-    while (redButton.isPressed()) {
+    if (passiveMode) {
+      enterPassiveMode();
+      break;
+    }
+
+    while (redButton.isPressed()) { // if not passive mode, continue with game
       digitalWrite(BUTTONPWRPINS[0], HIGH);
       pixel.setPixelColor(RED_INDEX, COLORS[RED_INDEX]);
       pixel.show();
@@ -504,10 +500,28 @@ void updateBulb() {
 }
 
 void cycleColors() {
+  ++pixelLightColor;
+  for (int i = 0; i < 4; i++) {
+    pixel.setPixelColor(i, rainbow[pixelLightColor % RAINBOW_LENGTH]);
+  }
+  pixel.show();
+  setEncoderLight();
+}
+
+void cycleHueColors() {
   setHue(BULB, hueLightOnOff, HueRainbow[++hueLightColor % HUE_RAINBOW_SIZE], brightness, saturation);
 }
 
 void cycleColorsReverse() {
+  --pixelLightColor;
+  for (int i = 0; i < 4; i++) {
+    pixel.setPixelColor(i, rainbow[pixelLightColor % RAINBOW_LENGTH]);
+  }
+  pixel.show();
+  setEncoderLight();
+}
+
+void cycleHueColorsReverse() {
   setHue(BULB, hueLightOnOff, HueRainbow[--hueLightColor % HUE_RAINBOW_SIZE], brightness, saturation);
 }
 
@@ -532,4 +546,160 @@ void displayFace(const unsigned char *face) {
 
 float celsiusToFahrenheit(float celsius) {
   return (9.0 / 5.0) * celsius + 32;
+}
+
+void enterPassiveMode() {
+
+  bool manualOverride = false;
+  while (passiveMode) {
+
+    if (ylwButton.isPressed()) {
+      manualOverride = true;
+
+      hueLightOnOff = !hueLightOnOff;
+      if (hueLightOnOff) {
+        Serial.printf("Turning on Hue Light #%i\n", BULB);
+        updateBulb();
+      }
+      else {
+        Serial.printf("Turning off Hue Light #%i\n", BULB);
+        updateBulb();
+      }
+
+      pixelLightOnOff = !pixelLightOnOff;
+      if (pixelLightOnOff) {
+        Serial.printf("Turning on Pixels\n");
+        for (int i = 0; i < 4; i++) {
+          pixel.setPixelColor(i, rainbow[pixelLightColor % RAINBOW_LENGTH]);
+        }
+        pixel.show();
+      }
+      else {
+        Serial.printf("Turning off Pixels\n");
+        pixel.clear();
+        pixel.show();
+      }
+
+      encoderLightOnOff = !encoderLightOnOff;
+      if (encoderLightOnOff) {
+        setEncoderLight();
+      }
+      else {        
+        // turn off encoder light
+        digitalWrite(ENCODER_RPIN, HIGH);
+        digitalWrite(ENCODER_GPIN, HIGH);
+        digitalWrite(ENCODER_BPIN, HIGH);
+      }
+
+
+      // deal with button glitch
+      while (ylwButton.isPressed()) {
+        // do nothing
+      }
+      delay(50);
+    }
+
+    if (tempTimer.isTimerReady()) {
+      tempC = bme.readTemperature();
+      tempF = celsiusToFahrenheit(tempC);
+      Serial.printf("tempF: %0.2f\n", tempF);
+      tempTimer.startTimer(10000);
+    }
+
+    if (!manualOverride) {
+      // update (initialize) neopixels based on temperature
+      pixelLightColor = (int)(tempF / (100.0 / 6.0));
+      setEncoderLight();
+      for (int i = 0; i < 4; i++) {
+        pixel.setPixelColor(i, temperatureToColor(tempF));
+      }
+      pixel.show();
+    }
+    
+    if (lightCycleButton.isClicked()) {
+      manualOverride = true;
+      cycleColors();
+    }
+
+    encoderPosition = myEnc.read() / 4;
+
+    // bound input to 0-95
+    if (encoderPosition < ENCODER_MIN_POSITION) {
+      encoderPosition = ENCODER_MIN_POSITION;
+      myEnc.write(encoderPosition * 4);
+    }
+    if (encoderPosition > ENCODER_MAX_POSITION) {
+      encoderPosition = ENCODER_MAX_POSITION;
+      myEnc.write(encoderPosition * 4);
+    }
+
+    // check to see if position has updated & print
+    if (encoderPosition != prevEncoderPosition) {
+      prevEncoderPosition = encoderPosition;
+      brightness = encoderPositionToBrightness(encoderPosition);
+      updateBulb();
+      pixel.setBrightness(brightness);
+      pixel.show();
+      Serial.printf("Encoder Position: #%i, Brightness: %i\n", encoderPosition, brightness);
+    }
+
+    if (!modeButton.isPressed()) {
+      passiveMode = false;
+    }
+  }
+
+  // turn off encoder light
+  digitalWrite(ENCODER_RPIN, HIGH);
+  digitalWrite(ENCODER_GPIN, HIGH);
+  digitalWrite(ENCODER_BPIN, HIGH);
+
+  pixel.clear();
+  pixel.show();
+
+  firstPlay = true;
+}
+
+void setEncoderLight() {
+  int encoderLightColor = pixelLightColor % RAINBOW_LENGTH;
+  switch (encoderLightColor) {
+    case 0: // red
+      digitalWrite(ENCODER_RPIN, LOW);
+      digitalWrite(ENCODER_GPIN, HIGH);
+      digitalWrite(ENCODER_BPIN, HIGH);
+      break;
+    case 1: // yellow
+      digitalWrite(ENCODER_RPIN, LOW);
+      digitalWrite(ENCODER_GPIN, LOW);
+      digitalWrite(ENCODER_BPIN, HIGH);
+      break;
+    case 2: // green
+      digitalWrite(ENCODER_RPIN, HIGH);
+      digitalWrite(ENCODER_GPIN, LOW);
+      digitalWrite(ENCODER_BPIN, HIGH);
+      break;
+    case 3: // cyan
+      digitalWrite(ENCODER_RPIN, HIGH);
+      digitalWrite(ENCODER_GPIN, LOW);
+      digitalWrite(ENCODER_BPIN, LOW);
+      break;
+    case 4: // blue
+      digitalWrite(ENCODER_RPIN, HIGH);
+      digitalWrite(ENCODER_GPIN, HIGH);
+      digitalWrite(ENCODER_BPIN, LOW);
+      break;
+    case 5: // magenta
+      digitalWrite(ENCODER_RPIN, LOW);
+      digitalWrite(ENCODER_GPIN, HIGH);
+      digitalWrite(ENCODER_BPIN, LOW);
+      break;
+    case 6: // white
+      digitalWrite(ENCODER_RPIN, LOW);
+      digitalWrite(ENCODER_GPIN, LOW);
+      digitalWrite(ENCODER_BPIN, LOW);
+      break;
+  }
+}
+
+int temperatureToColor(float temp) {
+  return rainbow[(int)(temp / (100.0 / 6.0))];
 }
