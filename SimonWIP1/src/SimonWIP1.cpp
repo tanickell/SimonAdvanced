@@ -94,6 +94,7 @@ const int SCREEN_WIDTH = 128;
 const int SCREEN_HEIGHT = 64;
 
 const int BME280_HEX_ADDRESS = 0x76;
+const int PRESSURE_OFFSET = 5; // 1 inch per 1000 feet in abq
 
 
 // Variables
@@ -119,6 +120,9 @@ bool firstPlay;
 int status;
 float tempC;
 float tempF;
+float pressPA;
+float humidRH;
+float pressInHg;
 
 bool passiveMode;
 
@@ -154,9 +158,12 @@ int encoderPositionToBrightness(int position);
 void updateBulb();
 void cycleColors();
 void cycleColorsReverse();
+void cycleHueColors();
+void cycleHueColorsReverse();
 void displaySplash();
 void displayFace(const unsigned char *face);
 float celsiusToFahrenheit(float celsius);
+float pascalsToInHg(float pascals);
 void enterPassiveMode();
 void setEncoderLight();
 int temperatureToColor(float temp);
@@ -206,6 +213,8 @@ void setup() {
     Serial.printf("BME280 at addess 0x%02X failed to start.", BME280_HEX_ADDRESS);
   }
   tempC = bme.readTemperature();
+  pressPA = bme.readPressure();
+  humidRH = bme.readHumidity();
 
   // set up WiFi
   WiFi.on();
@@ -548,6 +557,10 @@ float celsiusToFahrenheit(float celsius) {
   return (9.0 / 5.0) * celsius + 32;
 }
 
+float pascalsToInHg(float pascals) {
+  return (1.0 / 3386.39) * pascals;
+}
+
 void enterPassiveMode() {
 
   bool manualOverride = false;
@@ -601,8 +614,22 @@ void enterPassiveMode() {
 
     if (tempTimer.isTimerReady()) {
       tempC = bme.readTemperature();
+      pressPA = bme.readPressure();
+      humidRH = bme.readHumidity();
       tempF = celsiusToFahrenheit(tempC);
-      Serial.printf("tempF: %0.2f\n", tempF);
+      pressInHg = pascalsToInHg(pressPA) + PRESSURE_OFFSET;
+      Serial.printf("tempF\n%0.2f\n\npressInHg\n%0.2f\n\nhumidRH\n%0.2f\n\n", 
+        tempF, pressInHg, humidRH);
+
+      // print same to OLED display:
+      display.clearDisplay();
+      display.setTextSize(1);
+      display.setTextColor(WHITE);
+      display.setCursor(0, 0);
+      display.printf("tempF\n%0.2f\n\npressInHg\n%0.2f\n\nhumidRH\n%0.2f\n\n", 
+        tempF, pressInHg, humidRH);
+      display.display();
+
       tempTimer.startTimer(10000);
     }
 
