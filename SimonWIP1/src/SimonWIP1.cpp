@@ -154,7 +154,7 @@ void setup() {
 
   // set up serial monitor
   Serial.begin(9600);
-  waitUntil(Serial.isConnected);
+  waitFor(Serial.isConnected, 10000);
   delay(1000);
   Serial.printf("Ready to go!\n\n");
 
@@ -185,11 +185,11 @@ void setup() {
   WiFi.clearCredentials();
   WiFi.setCredentials("IoTNetwork");
   WiFi.connect();
-  // int count = 0;
-  while (!WiFi.ready()) {
+  int wifiCount = 0;
+  while (!WiFi.ready() && wifiCount <= 20) {
     Serial.printf(".");
-    delay(250);
-    // count++;
+    delay(1000);
+    wifiCount++;
   }
   Serial.printf("\n\n");
 
