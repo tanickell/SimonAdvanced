@@ -1,7 +1,8 @@
 /* 
- * Project myProject
- * Author: Your Name
- * Date: 
+ * Project Time-On! -- SimonAdvanced
+ * Description: Smart Simon Game That Keeps You On-Time!
+ * Author: Tim Nickell
+ * Date: 2025-11-02
  * For comprehensive documentation and examples, please visit:
  * https://docs.particle.io/firmware/best-practices/firmware-template/
  */
@@ -40,7 +41,7 @@ const int ENCODER_PIN_B = D9;
 
 const int REDPIN = D10; // SIMON red button pin
 
-const int REDPWRPIN = D11;
+const int REDPWRPIN = D11; // power pins for button LEDs
 const int BLUPWRPIN = D12;
 const int YLWPWRPIN = D13;
 const int GRNPWRPIN = D14;
@@ -88,13 +89,20 @@ const int WEMO_TWO = 4;
 const int MAX_BRIGHTNESS = 255;
 const int MAX_SATURATION = 255;
 
-const int OLED_RESET = -1;
-const int INTRO_FLASH_COUNT = 8;
+const int OLED_RESET = -1;           // 
+const int INTRO_FLASH_COUNT = 5;
 const int SCREEN_WIDTH = 128;
 const int SCREEN_HEIGHT = 64;
 
 const int BME280_HEX_ADDRESS = 0x76;
 const int PRESSURE_OFFSET = 5; // 1 inch per 1000 feet in abq
+const float ENCODER_STEP_OVER_FOUR = 1.25; // ex: 1 gives a step over four of 4/4 --> step == 4 (default)
+
+const int MILLISECONDS_PER_SECOND = 1000; // clock constants
+const int SECONDS_PER_MINUTE = 60;
+const int MINUTES_PER_HOUR = 60;
+const int HOURS_PER_HALF_DAY = 12;
+const int HOURS_PER_DAY = 24;
 
 
 // Variables
@@ -125,12 +133,24 @@ float humidRH;
 float pressInHg;
 
 bool passiveMode;
+int clockHour;
+int clockMinute;
+int clockSecond;
+bool clockBlink;
+long clockTime;
+long clockTimeOffset;
+int clockHourOffset;
+int clockMinuteOffset;
+int clockSecondOffset;
 
 
 // Objects
 std::vector<int> solution;
+std::string ampm;
+
 IoTTimer timer;
 IoTTimer tempTimer;
+IoTTimer buttonTimer;
 
 Button redButton(REDPIN);
 Button bluButton(BLUPIN);
@@ -144,6 +164,7 @@ Adafruit_SSD1306 display(OLED_RESET);
 Adafruit_BME280 bme; // Define BME280 object (I2C device)
 
 Encoder myEnc(ENCODER_PIN_A, ENCODER_PIN_B);
+
 WemoObj wemoOne(WEMO_ONE);
 WemoObj wemoTwo(WEMO_TWO);
 
@@ -167,6 +188,11 @@ float pascalsToInHg(float pascals);
 void enterPassiveMode();
 void setEncoderLight();
 int temperatureToColor(float temp);
+void toggleHueLightsOnOff();
+void togglePixelLightsOnOff();
+void toggleEncoderLightsOnOff();
+void toggleLocalLightsOnOff();
+
 
 // setup
 void setup() {
@@ -242,13 +268,26 @@ void setup() {
   brightness = MAX_BRIGHTNESS / 2;
   saturation = MAX_SATURATION;
   myWemo = WEMO_ONE;
-  firstPlay = true;
 
+  firstPlay = true;
   passiveMode = false;
 
   // initialize timers
   timer.startTimer(0);
   tempTimer.startTimer(0);
+  buttonTimer.startTimer(0);
+
+  // initialize clock
+  clockTime = (long) millis();
+  clockTimeOffset = 0;
+  clockHour   = 0;
+  clockMinute = 0;
+  clockSecond = 0;
+  ampm = "pm";
+  clockBlink = false;
+  clockHourOffset = 0;
+  clockMinuteOffset = 0;
+  clockSecondOffset = 0;
 
   // play splash screen
   displaySplash();
@@ -566,53 +605,122 @@ void enterPassiveMode() {
   bool manualOverride = false;
   while (passiveMode) {
 
+    // red button held: set clock
+    if (redButton.isPressed()) {
+
+      while (redButton.isPressed()) {
+
+        if (bluButton.isPressed()) {
+          clockTimeOffset += 1000 * 60 * 60;
+          while (bluButton.isPressed()) {
+            // do nothing
+          }
+        }
+        if (ylwButton.isPressed()) {
+          clockTimeOffset += 1000 * 60;
+          while (ylwButton.isPressed()) {
+            // do nothing
+          }
+        }
+        if (grnButton.isPressed()) {
+          clockTimeOffset += 1000;
+          while (grnButton.isPressed()) {
+            // do nothing
+          }
+        }
+
+        buttonTimer.startTimer(100);
+        while (!buttonTimer.isTimerReady()) {
+          // do nothing
+        }
+      }
+      while (redButton.isPressed()) {
+        // do nothing
+      }
+      buttonTimer.startTimer(100);
+      while (!buttonTimer.isTimerReady()) {
+        // do nothing
+      }
+    }
+
+    // blue button pressed: return to ambient mode
+    if (bluButton.isPressed()) {
+      manualOverride = false;
+      while (bluButton.isPressed()) {
+        // do nothing
+      }
+      buttonTimer.startTimer(100);
+      while (!buttonTimer.isTimerReady()) {
+        // do nothing
+      }
+    }
+
+    // yellow (white) button pressed: toggle local lights on/off
     if (ylwButton.isPressed()) {
       manualOverride = true;
 
-      hueLightOnOff = !hueLightOnOff;
-      if (hueLightOnOff) {
-        Serial.printf("Turning on Hue Light #%i\n", BULB);
-        updateBulb();
-      }
-      else {
-        Serial.printf("Turning off Hue Light #%i\n", BULB);
-        updateBulb();
-      }
-
-      pixelLightOnOff = !pixelLightOnOff;
-      if (pixelLightOnOff) {
-        Serial.printf("Turning on Pixels\n");
-        for (int i = 0; i < 4; i++) {
-          pixel.setPixelColor(i, rainbow[pixelLightColor % RAINBOW_LENGTH]);
-        }
-        pixel.show();
-      }
-      else {
-        Serial.printf("Turning off Pixels\n");
-        pixel.clear();
-        pixel.show();
-      }
-
-      encoderLightOnOff = !encoderLightOnOff;
-      if (encoderLightOnOff) {
-        setEncoderLight();
-      }
-      else {        
-        // turn off encoder light
-        digitalWrite(ENCODER_RPIN, HIGH);
-        digitalWrite(ENCODER_GPIN, HIGH);
-        digitalWrite(ENCODER_BPIN, HIGH);
-      }
-
+      toggleLocalLightsOnOff();
 
       // deal with button glitch
       while (ylwButton.isPressed()) {
         // do nothing
       }
-      delay(50);
+      buttonTimer.startTimer(200); // yellow button can be finicky -- give it a longer delay :)
+      while (!buttonTimer.isTimerReady()) {
+        // do nothing
+      }
+    }
+
+    // green button held: control on/off for hue light(s) and wemos
+    if (grnButton.isPressed()) {
+
+      while (grnButton.isPressed()) {
+
+        if (redButton.isPressed()) {
+          wemoOne.toggleOnOff();
+          while (redButton.isPressed()) {
+            // do nothing
+          }
+        }
+        if (bluButton.isPressed()) {
+          wemoTwo.toggleOnOff();
+          while (bluButton.isPressed()) {
+            // do nothing
+          }
+        }
+        if (ylwButton.isPressed()) {
+          toggleHueLightsOnOff();
+          while (ylwButton.isPressed()) {
+            // do nothing
+          }
+        }
+
+        buttonTimer.startTimer(100);
+        while (!buttonTimer.isTimerReady()) {
+          // do nothing
+        }
+      }
+      while (grnButton.isPressed()) {
+        // do nothing
+      }
+      buttonTimer.startTimer(100);
+      while (!buttonTimer.isTimerReady()) {
+        // do nothing
+      }
     }
 
     if (tempTimer.isTimerReady()) {
+
+      // do clock
+      clockTime = (long) millis() + clockTimeOffset;
+      clockHour = (clockTime / MILLISECONDS_PER_SECOND / SECONDS_PER_MINUTE / MINUTES_PER_HOUR) % HOURS_PER_HALF_DAY;
+      if (clockHour == 0) {
+        clockHour = HOURS_PER_HALF_DAY;
+      }
+      clockMinute = (clockTime / MILLISECONDS_PER_SECOND / SECONDS_PER_MINUTE) % MINUTES_PER_HOUR;
+      clockSecond = (clockTime / MILLISECONDS_PER_SECOND) % SECONDS_PER_MINUTE;
+      ampm = (clockTime / MILLISECONDS_PER_SECOND / SECONDS_PER_MINUTE/ MINUTES_PER_HOUR) % HOURS_PER_DAY > HOURS_PER_HALF_DAY - 1 ? "pm" : "am";
+
       tempC = bme.readTemperature();
       pressPA = bme.readPressure();
       humidRH = bme.readHumidity();
@@ -626,42 +734,42 @@ void enterPassiveMode() {
       display.setTextSize(1);
       display.setTextColor(WHITE);
       display.setCursor(0, 0);
-      display.printf("tempF\n%0.2f\n\npressInHg\n%0.2f\n\nhumidRH\n%0.2f\n\n", 
-        tempF, pressInHg, humidRH);
+      display.printf("%d:%02d:%02d %s\n\ntempF  |  %0.2f\n\npressInHg  |  %0.2f\n\nhumidRH  |  %0.2f\n\n", 
+        clockHour, clockMinute, clockSecond, ampm.c_str(), tempF, pressInHg, humidRH);
       display.display();
 
-      tempTimer.startTimer(10000);
+      tempTimer.startTimer(850); // update clock on OLED a little faster than once/sec to account for render lag
     }
 
     if (!manualOverride) {
-      // update (initialize) neopixels based on temperature
-      pixelLightColor = (int)(tempF / (100.0 / 6.0));
+      pixelLightColor = (int)(tempF / (100.0 / 6.0)); // update (initialize) neopixels based on temperature
       setEncoderLight();
       for (int i = 0; i < 4; i++) {
         pixel.setPixelColor(i, temperatureToColor(tempF));
       }
       pixel.show();
+      hueLightColor = pixelLightColor;
+      updateBulb();
     }
     
     if (lightCycleButton.isClicked()) {
       manualOverride = true;
       cycleColors();
+      cycleHueColors();
     }
 
-    encoderPosition = myEnc.read() / 4;
+    encoderPosition = (int) (myEnc.read() / ENCODER_STEP_OVER_FOUR);
 
-    // bound input to 0-95
-    if (encoderPosition < ENCODER_MIN_POSITION) {
+    if (encoderPosition < ENCODER_MIN_POSITION) { // bound input to 0-95
       encoderPosition = ENCODER_MIN_POSITION;
-      myEnc.write(encoderPosition * 4);
+      myEnc.write((int) (encoderPosition * ENCODER_STEP_OVER_FOUR));
     }
     if (encoderPosition > ENCODER_MAX_POSITION) {
       encoderPosition = ENCODER_MAX_POSITION;
-      myEnc.write(encoderPosition * 4);
+      myEnc.write((int) (encoderPosition * ENCODER_STEP_OVER_FOUR));
     }
 
-    // check to see if position has updated & print
-    if (encoderPosition != prevEncoderPosition) {
+    if (encoderPosition != prevEncoderPosition) { // check to see if position has updated & print
       prevEncoderPosition = encoderPosition;
       brightness = encoderPositionToBrightness(encoderPosition);
       updateBulb();
@@ -675,8 +783,7 @@ void enterPassiveMode() {
     }
   }
 
-  // turn off encoder light
-  digitalWrite(ENCODER_RPIN, HIGH);
+  digitalWrite(ENCODER_RPIN, HIGH); // turn off encoder light
   digitalWrite(ENCODER_GPIN, HIGH);
   digitalWrite(ENCODER_BPIN, HIGH);
 
@@ -730,3 +837,52 @@ void setEncoderLight() {
 int temperatureToColor(float temp) {
   return rainbow[(int)(temp / (100.0 / 6.0))];
 }
+
+void toggleHueLightsOnOff() {
+  hueLightOnOff = !hueLightOnOff;
+  if (hueLightOnOff) {
+    Serial.printf("Turning on Hue Light #%i\n", BULB);
+    updateBulb();
+  }
+  else {
+    Serial.printf("Turning off Hue Light #%i\n", BULB);
+    updateBulb();
+  }
+}
+
+void togglePixelLightsOnOff() {
+  pixelLightOnOff = !pixelLightOnOff;
+  if (pixelLightOnOff) {
+    Serial.printf("Turning on Pixels\n");
+    for (int i = 0; i < 4; i++) {
+      pixel.setPixelColor(i, rainbow[pixelLightColor % RAINBOW_LENGTH]);
+    }
+    pixel.show();
+  }
+  else {
+    Serial.printf("Turning off Pixels\n");
+    pixel.clear();
+    pixel.show();
+  }
+}
+
+void toggleEncoderLightsOnOff() {
+  encoderLightOnOff = !encoderLightOnOff;
+  if (encoderLightOnOff) {
+    setEncoderLight();
+  }
+  else { // turn off encoder light
+    digitalWrite(ENCODER_RPIN, HIGH);
+    digitalWrite(ENCODER_GPIN, HIGH);
+    digitalWrite(ENCODER_BPIN, HIGH);
+  }
+}
+
+void toggleLocalLightsOnOff() {
+  togglePixelLightsOnOff();
+  toggleEncoderLightsOnOff();
+}
+
+
+
+

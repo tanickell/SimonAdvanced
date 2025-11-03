@@ -40,7 +40,9 @@ int HueGreen = 22500;
 int HueBlue = 45000;
 int HueIndigo = 47500;
 int HueViolet = 50000;
-int HueRainbow[] = {HueRed, HueOrange, HueYellow, HueGreen, HueBlue, HueIndigo, HueViolet};
+// int HueRainbow[] = {HueRed, HueOrange, HueYellow, HueGreen, HueBlue, HueIndigo, HueViolet};
+int HueRainbow[] = {HueRed, HueYellow, HueGreen, HueBlue, HueIndigo, HueViolet, HueOrange};
+
 
 TCPClient HueClient;
 
